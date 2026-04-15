@@ -12,7 +12,7 @@ Trước khi bắt đầu, hãy đảm bảo máy tính của bạn đã cài đ
 Mở Terminal (hoặc Command Prompt/PowerShell) ở thư mục bạn muốn lưu game, sau đó chạy lệnh sau để tải toàn bộ dự án về máy:
 
 ```
-git clone [https://github.com/phanquocuy/SnakeASIA_13.git]
+git clone https://github.com/phanquocuy/SnakeASIA_13.git
 ```
 ## 3. Truy cập vào thư mục mã nguồn
 Di chuyển vào thư mục dự án và tìm đến nơi chứa các file .java (thư mục src):
