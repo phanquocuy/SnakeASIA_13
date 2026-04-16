@@ -550,7 +550,7 @@ public class GamePanel extends JPanel implements ActionListener {
         for(int c=11; c<=13; c++) { LEVEL_2[5][c]=1; LEVEL_2[6][c]=1; LEVEL_2[13][c]=1; LEVEL_2[14][c]=1; } 
         for(int r=13; r<=17; r++) { LEVEL_2[r][9]=1; LEVEL_2[r][10]=1; LEVEL_2[r][14]=1; LEVEL_2[r][15]=1; } 
 
-        for(int r=0; r<=7; r++) { LEVEL_3[r][3]=1; LEVEL_3[r][4]=1; LEVEL_3[r][20]=1; LEVEL_3[r][21]=1; }
+        for(int r=2; r<=7; r++) { LEVEL_3[r][3]=1; LEVEL_3[r][4]=1; LEVEL_3[r][20]=1; LEVEL_3[r][21]=1; }
         for(int c=5; c<=8; c++) { LEVEL_3[6][c]=1; LEVEL_3[7][c]=1; }
         for(int c=16; c<=19; c++) { LEVEL_3[6][c]=1; LEVEL_3[7][c]=1; }
         for(int c=0; c<=22; c++) LEVEL_3[10][c] = 1; 
@@ -562,7 +562,7 @@ public class GamePanel extends JPanel implements ActionListener {
 
         for(int r=4; r<=15; r++) { LEVEL_4[r][7]=1; LEVEL_4[r][17]=1; }
         for(int c=4; c<=20; c++) { LEVEL_4[5][c]=1; LEVEL_4[14][c]=1; }
-        LEVEL_4[5][7]=0; LEVEL_4[5][17]=0; LEVEL_4[14][7]=0; LEVEL_4[14][17]=0;
+         
         LEVEL_4[10][7]=0; LEVEL_4[10][17]=0; LEVEL_4[5][12]=0; LEVEL_4[14][12]=0;
 
         for(int r=2; r<=17; r+=3) { for(int c=2; c<=22; c+=3) LEVEL_5[r][c] = 1; }
@@ -705,67 +705,137 @@ public class GamePanel extends JPanel implements ActionListener {
         }
     }
 
-    // --- THUẬT TOÁN BEST FIRST SEARCH & CƠ CHẾ FLOOD FILL ---
-    private int heuristic(int c1, int r1, int c2, int r2)  {
-        return Math.abs(c1 - c2) + Math.abs(r1 - r2);
-    }
+    
+    
+ 
+    // --- THUẬT TOÁN AI DÀNH CHO MAP VÀ CLASSIC ---
 
-    class BFSNode implements Comparable<BFSNode> {
+    class BFSNode {
         int c, r;
         char initialMove;
-        int h; // Ưu tiên thuần heuristic
+        int dist;
 
-        BFSNode(int c, int r, char initialMove, int h) {
+        BFSNode(int c, int r, char initialMove, int dist) {
             this.c = c; this.r = r;
             this.initialMove = initialMove;
-            this.h = h;
-        }
-
-        @Override
-        public int compareTo(BFSNode other) {
-            return Integer.compare(this.h, other.h); // Greedy Best First Search
+            this.dist = dist;
         }
     }
 
+    // Phân luồng bộ não AI
     private char calculateAIMove() {
-        int headC = snakeX[0], headR = snakeY[0];
-        int targetC = fruitX, targetR = fruitY;
-        if (isBigFruitActive) {
-            targetC = bigFruitX;
-            targetR = bigFruitY;
-        }
+        if (isInfiniteMode) return calculateAIClassic();
+        return calculateAIMap();
+    }
 
-        // Lập bản đồ vật cản
+    // 1. BỘ NÃO CLASSIC: Sống sót là trên hết, chống tự vây
+    private char calculateAIClassic() {
+        int headC = snakeX[0], headR = snakeY[0];
+        int targetC = isBigFruitActive ? bigFruitX : fruitX;
+        int targetR = isBigFruitActive ? bigFruitY : fruitY;
+
         boolean[][] obstacles = new boolean[HEIGHT_TILES][WIDTH_TILES];
-        for (Point w : walls) obstacles[w.y][w.x] = true;
+        // Ở classic chỉ có cơ thể là vật cản
+        for (int i = 0; i < snakeLength - 1; i++) {
+            obstacles[snakeY[i]][snakeX[i]] = true;
+        }
         
-        // Không liệt kê khúc đuôi sát cuối vào vật cản vì nhịp sau nó sẽ trườn đi
-        for (int i = 0; i < snakeLength - 1; i++) { 
-            int c = snakeX[i], r = snakeY[i];
-            if (c >= 0 && c < WIDTH_TILES && r >= 0 && r < HEIGHT_TILES) {
-                obstacles[r][c] = true;
+        // Nhắm đến đuôi làm lối thoát
+        int tailC = snakeX[snakeLength - 1];
+        int tailR = snakeY[snakeLength - 1];
+        if (snakeLength > 1) obstacles[tailR][tailC] = false; 
+
+        int[] dc = {0, 0, -1, 1};
+        int[] dr = {-1, 1, 0, 0};
+        char[] dirs = {'u', 'd', 'l', 'r'};
+
+        char bestDir = ' ';
+        int minDistanceToApple = Integer.MAX_VALUE;
+        int maxSafeSpace = -1;
+        char survivalDir = dir;
+
+        for (int i = 0; i < 4; i++) {
+            // Chống quay đầu
+            if ((dir == 'u' && dirs[i] == 'd') || (dir == 'd' && dirs[i] == 'u') ||
+                (dir == 'l' && dirs[i] == 'r') || (dir == 'r' && dirs[i] == 'l')) continue;
+
+            int nc = (headC + dc[i] + WIDTH_TILES) % WIDTH_TILES;
+            int nr = (headR + dr[i] + HEIGHT_TILES) % HEIGHT_TILES;
+
+            if (!obstacles[nr][nc]) {
+                // Tính toán 3 yếu tố: Quãng đường tới táo, Không gian sống, và Đuôi có ở đó không
+                int distToApple = getBFSPathLength(nc, nr, targetC, targetR, obstacles, true);
+                int space = countOpenSpace(nc, nr, obstacles, true);
+                boolean canReachTail = (getBFSPathLength(nc, nr, tailC, tailR, obstacles, true) != -1);
+
+                // Luật vàng: Chỉ an toàn nếu thấy được đuôi, hoặc không gian còn lại to hơn cơ thể
+                boolean isSafe = canReachTail || (space > snakeLength + 5);
+
+                if (distToApple != -1 && isSafe) {
+                    if (distToApple < minDistanceToApple) {
+                        minDistanceToApple = distToApple;
+                        bestDir = dirs[i];
+                    }
+                }
+
+                // Lưu lại hướng có không gian rộng nhất để câu giờ nếu táo ở vị trí tử huyệt
+                if (space > maxSafeSpace) {
+                    maxSafeSpace = space;
+                    survivalDir = dirs[i];
+                }
             }
         }
 
-        // CHIẾN THUẬT 1: Tìm đường đến táo (Best First Search)
-        char move = findBFSPath(headC, headR, targetC, targetR, obstacles);
+        if (bestDir != ' ') return bestDir;
+
+        // TÌNH HUỐNG KHẨN CẤP: Không thấy táo hoặc thấy táo nhưng đâm vào sẽ chết
+        // -> Chuyển sang chiến thuật đi theo đuôi
+        int distToTail = getBFSPathLength(headC, headR, tailC, tailR, obstacles, true);
+        if (distToTail != -1) {
+             for (int i = 0; i < 4; i++) {
+                if ((dir == 'u' && dirs[i] == 'd') || (dir == 'd' && dirs[i] == 'u') ||
+                    (dir == 'l' && dirs[i] == 'r') || (dir == 'r' && dirs[i] == 'l')) continue;
+                int nc = (headC + dc[i] + WIDTH_TILES) % WIDTH_TILES;
+                int nr = (headR + dr[i] + HEIGHT_TILES) % HEIGHT_TILES;
+                if (!obstacles[nr][nc]) {
+                     if (getBFSPathLength(nc, nr, tailC, tailR, obstacles, true) != -1) return dirs[i];
+                }
+             }
+        }
+
+        // Bất lực: Cứ đi vào chỗ rộng nhất mong chờ kỳ tích
+        return survivalDir;
+    }
+
+    // 2. BỘ NÃO MAP: Luồn lách né tường theo BFS thuần
+    private char calculateAIMap() {
+        int headC = snakeX[0], headR = snakeY[0];
+        int targetC = isBigFruitActive ? bigFruitX : fruitX;
+        int targetR = isBigFruitActive ? bigFruitY : fruitY;
+
+        boolean[][] obstacles = new boolean[HEIGHT_TILES][WIDTH_TILES];
+        for (Point w : walls) obstacles[w.y][w.x] = true;
+        for (int i = 0; i < snakeLength - 1; i++) {
+            int c = snakeX[i], r = snakeY[i];
+            if (c >= 0 && c < WIDTH_TILES && r >= 0 && r < HEIGHT_TILES) obstacles[r][c] = true;
+        }
+
+        char move = findBFSPathMap(headC, headR, targetC, targetR, obstacles);
         if (move != ' ') return move;
 
-        // CHIẾN THUẬT 2: Survival Mode - Cố đuổi theo đuôi
+        // Fallback: Chạy theo đuôi
         int tailC = snakeX[snakeLength - 1];
         int tailR = snakeY[snakeLength - 1];
         if (tailC >= 0 && tailC < WIDTH_TILES && tailR >= 0 && tailR < HEIGHT_TILES) {
             obstacles[tailR][tailC] = false; 
-            move = findBFSPath(headC, headR, tailC, tailR, obstacles);
+            move = findBFSPathMap(headC, headR, tailC, tailR, obstacles);
             if (move != ' ') return move;
         }
 
-        // CHIẾN THUẬT 3: TÌM ĐƯỜNG CÂU GIỜ BẰNG FLOOD FILL
-        // Đếm xem rẽ hướng nào thì khoảng trống sống sót sẽ dài nhất
+        // Fallback 2: Loang tìm khoảng trống
         int[] dc = {0, 0, -1, 1};
         int[] dr = {-1, 1, 0, 0};
         char[] dirs = {'u', 'd', 'l', 'r'};
-        
         int maxSpace = -1;
         char bestDir = dir; 
 
@@ -775,59 +845,109 @@ public class GamePanel extends JPanel implements ActionListener {
                 if ((dir == 'u' && dirs[i] == 'd') || (dir == 'd' && dirs[i] == 'u') ||
                     (dir == 'l' && dirs[i] == 'r') || (dir == 'r' && dirs[i] == 'l')) continue;
                 
-                int space = countOpenSpace(nc, nr, obstacles);
+                int space = countOpenSpace(nc, nr, obstacles, false);
                 if (space > maxSpace) {
                     maxSpace = space;
                     bestDir = dirs[i];
                 }
             }
         }
-        
         return bestDir; 
     }
 
-    // Lõi đường đi sử dụng thuật toán Best First Search 
-    private char findBFSPath(int startC, int startR, int targetC, int targetR, boolean[][] obstacles) {
+    // Các hàm tính toán đường đi phụ trợ
+    private char findBFSPathMap(int startC, int startR, int targetC, int targetR, boolean[][] obstacles) {
         int[] dc = {0, 0, -1, 1};
         int[] dr = {-1, 1, 0, 0};
         char[] dirs = {'u', 'd', 'l', 'r'};
 
-        PriorityQueue<BFSNode> openSet = new PriorityQueue<>();
-        boolean[][] closedSet = new boolean[HEIGHT_TILES][WIDTH_TILES];
+        Queue<BFSNode> queue = new LinkedList<>();
+        boolean[][] visited = new boolean[HEIGHT_TILES][WIDTH_TILES];
 
         for (int i = 0; i < 4; i++) {
             int nc = startC + dc[i], nr = startR + dr[i];
             if (nc >= 0 && nc < WIDTH_TILES && nr >= 0 && nr < HEIGHT_TILES && !obstacles[nr][nc]) {
                 if ((dir == 'u' && dirs[i] == 'd') || (dir == 'd' && dirs[i] == 'u') ||
                     (dir == 'l' && dirs[i] == 'r') || (dir == 'r' && dirs[i] == 'l')) continue;
-                
-                int h = heuristic(nc, nr, targetC, targetR);
-                openSet.add(new BFSNode(nc, nr, dirs[i], h));
+                queue.add(new BFSNode(nc, nr, dirs[i], 0));
+                visited[nr][nc] = true;
             }
         }
 
-        while (!openSet.isEmpty()) {
-            BFSNode curr = openSet.poll();
-            
-            if (curr.c == targetC && curr.r == targetR) {
-                return curr.initialMove;
-            }
-
-            if (closedSet[curr.r][curr.c]) continue;
-            closedSet[curr.r][curr.c] = true;
+        while (!queue.isEmpty()) {
+            BFSNode curr = queue.poll();
+            if (curr.c == targetC && curr.r == targetR) return curr.initialMove;
 
             for (int i = 0; i < 4; i++) {
                 int nc = curr.c + dc[i], nr = curr.r + dr[i];
-                if (nc >= 0 && nc < WIDTH_TILES && nr >= 0 && nr < HEIGHT_TILES && !obstacles[nr][nc] && !closedSet[nr][nc]) {
-                    int h = heuristic(nc, nr, targetC, targetR);
-                    openSet.add(new BFSNode(nc, nr, curr.initialMove, h));
+                if (nc >= 0 && nc < WIDTH_TILES && nr >= 0 && nr < HEIGHT_TILES && !obstacles[nr][nc] && !visited[nr][nc]) {
+                    visited[nr][nc] = true;
+                    queue.add(new BFSNode(nc, nr, curr.initialMove, 0));
                 }
             }
         }
         return ' '; 
     }
 
-    // Thuật toán Loang đếm số lượng ô không gian an toàn hiện hữu
+    private int getBFSPathLength(int startC, int startR, int targetC, int targetR, boolean[][] obstacles, boolean wrap) {
+        if (startC == targetC && startR == targetR) return 0;
+        int[] dc = {0, 0, -1, 1};
+        int[] dr = {-1, 1, 0, 0};
+        
+        Queue<BFSNode> q = new LinkedList<>();
+        boolean[][] visited = new boolean[HEIGHT_TILES][WIDTH_TILES];
+        
+        q.add(new BFSNode(startC, startR, ' ', 0));
+        visited[startR][startC] = true;
+        
+        while(!q.isEmpty()) {
+            BFSNode curr = q.poll();
+            if (curr.c == targetC && curr.r == targetR) return curr.dist;
+            
+            for(int i=0; i<4; i++) {
+                int nc = curr.c + dc[i], nr = curr.r + dr[i];
+                if (wrap) {
+                    nc = (nc % WIDTH_TILES + WIDTH_TILES) % WIDTH_TILES;
+                    nr = (nr % HEIGHT_TILES + HEIGHT_TILES) % HEIGHT_TILES;
+                }
+                if (nc >= 0 && nc < WIDTH_TILES && nr >= 0 && nr < HEIGHT_TILES && !obstacles[nr][nc] && !visited[nr][nc]) {
+                    visited[nr][nc] = true;
+                    q.add(new BFSNode(nc, nr, ' ', curr.dist + 1));
+                }
+            }
+        }
+        return -1;
+    }
+
+    private int countOpenSpace(int startC, int startR, boolean[][] obstacles, boolean wrap) {
+        boolean[][] visited = new boolean[HEIGHT_TILES][WIDTH_TILES];
+        Queue<Point> queue = new LinkedList<>();
+        queue.add(new Point(startC, startR));
+        visited[startR][startC] = true;
+        
+        int count = 0;
+        int maxCount = WIDTH_TILES * HEIGHT_TILES; // Mở rộng không gian quét lên tối đa toàn bản đồ
+        int[] dc = {0, 0, -1, 1};
+        int[] dr = {-1, 1, 0, 0};
+
+        while (!queue.isEmpty() && count < maxCount) { 
+            Point p = queue.poll();
+            count++;
+            for (int i = 0; i < 4; i++) {
+                int nc = p.x + dc[i], nr = p.y + dr[i];
+                if (wrap) {
+                    nc = (nc % WIDTH_TILES + WIDTH_TILES) % WIDTH_TILES;
+                    nr = (nr % HEIGHT_TILES + HEIGHT_TILES) % HEIGHT_TILES;
+                }
+                if (nc >= 0 && nc < WIDTH_TILES && nr >= 0 && nr < HEIGHT_TILES && !obstacles[nr][nc] && !visited[nr][nc]) {
+                    visited[nr][nc] = true;
+                    queue.add(new Point(nc, nr));
+                }
+            }
+        }
+        return count;
+    }
+
     private int countOpenSpace(int startC, int startR, boolean[][] obstacles) {
         boolean[][] visited = new boolean[HEIGHT_TILES][WIDTH_TILES];
         Queue<Point> queue = new LinkedList<>();
@@ -844,6 +964,12 @@ public class GamePanel extends JPanel implements ActionListener {
 
             for (int i = 0; i < 4; i++) {
                 int nc = p.x + dc[i], nr = p.y + dr[i];
+                
+                if (isInfiniteMode) {
+                    nc = (nc % WIDTH_TILES + WIDTH_TILES) % WIDTH_TILES;
+                    nr = (nr % HEIGHT_TILES + HEIGHT_TILES) % HEIGHT_TILES;
+                }
+
                 if (nc >= 0 && nc < WIDTH_TILES && nr >= 0 && nr < HEIGHT_TILES 
                     && !obstacles[nr][nc] && !visited[nr][nc]) {
                     visited[nr][nc] = true;
