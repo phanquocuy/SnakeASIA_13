@@ -6,7 +6,7 @@ Chào mừng bạn đến với dự án SnakeAsia. Dưới đây là hướng d
 ## ⚙️ 1. Yêu cầu hệ thống
 Trước khi bắt đầu, hãy đảm bảo máy tính của bạn đã cài đặt sẵn:
 * **Java JDK** (phiên bản 8 trở lên).
-* **Git** (.
+* **Git** 
 
 ## 📥 2. Tải mã nguồn (Clone)
 Mở Terminal (hoặc Command Prompt/PowerShell) ở thư mục bạn muốn lưu game, sau đó chạy lệnh sau để tải toàn bộ dự án về máy:
